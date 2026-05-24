@@ -19,13 +19,28 @@
 | **Market Value Benchmarking** | Estimates your salary potential and identifies the "Salary Gap". |
 | **Semantic Keyword Injection** | Automatically matches your skills to the job offer using ethical reformulation. |
 | **Dual Workflow** | "I have a job offer" OR "Find offers matching my CV" — two distinct paths. |
-| **Job Search Integration** | Search 1000+ job offers via Adzuna API with interactive GIS map visualization. |
+| **🤖 Autonomous Hunter** | AI agent that autonomously scrapes job sites, scores offers vs your CV, and generates ready-to-send PDFs. |
 | **CV Comparison** | Myers' diff algorithm with word-level highlighting to visualize AI improvements. |
 | **ATS Simulator** | Extract and score your PDF exactly as ATS systems would see it. |
 | **CV Studio Pro** | Generates pixel-perfect PDFs in 32 premium themes with full customization. |
 | **Profile Photo Integration** | Upload and embed professional photos in 10 specialized photo-enabled themes. |
 | **DOCX Export** | Download editable Word format for further customization. |
-| **3 AI Providers** | Choose between Groq, Mistral AI, or Google AI (Gemini) for analysis. |
+| **### 🤖 Autonomous Hunter** | Fully autonomous job-hunting agent:
+- **Configure**: query, location, company blacklist, recency filter
+- **Sources**: JobTeaser (university portal) or Multi-source (WTTJ, HelloWork, Adzuna)
+- **Real-time console**: streaming logs via SSE (Server-Sent Events)
+- **Auto-scoring**: AI rates each offer vs your CV (0–100 match score)
+- **Auto-generation**: PDF CV + cover letter generated per matched offer
+- **Results library**: browse hunts grouped by company, filter by freshness (< 2h, < 24h, < 3d)
+- **Abort support**: stop mission at any time with clean process termination |
+| **### ✉️ Cover Letter Generator (v2)** | - Fully AI-powered (Groq / Mistral / Google AI / **Azure OpenAI**)
+- Bilingual: **French and English** output
+- Structured 4-paragraph narrative (Hook → You → Company → CTA)
+- Infers company address and hiring manager from context
+- Preserves authentic background if existing letter provided
+- Outputs structured JSON → rendered into premium PDF layout
+- Accessible from CV Studio and Autonomous Hunter results |
+| **4 AI Providers** | Groq, Mistral AI, Google AI (Gemini), or Azure OpenAI for analysis. |
 | **Onboarding Tour** | Guided interactive tour with mobile-adaptive tooltips. |
 
 ---
@@ -46,6 +61,16 @@ After uploading your CV, IRIS offers two distinct paths:
 2. Intelligent scraping (WTTJ, HelloWork via Playwright)
 3. AI relevance scoring (0–100) for each offer
 4. Select an offer → Audit → Rewrite → PDF export
+
+### 🤖 Path C — Autonomous Hunter (NEW)
+Fully autonomous job-hunting agent that runs in the background:
+1. Configure search query, location, blacklisted companies
+2. Choose source: **JobTeaser only** or **Multi-source** (WTTJ, HelloWork, Adzuna)
+3. Filter by recency: All / Last 24h / Last 7 days
+4. Agent scrapes, scores, and generates a full PDF per matched offer
+5. **Live streaming console** with real-time logs
+6. **Results library** — browse all hunts grouped by company, filtered by freshness
+7. One-click to open any result in CV editor or letter editor
 
 ---
 
@@ -143,20 +168,20 @@ Specialized layouts with integrated profile photos:
 ### Prerequisites
 - Node.js 20+
 - Python 3.11+
-- At least one AI API Key: [Groq](https://console.groq.com) (Free) | [Mistral](https://console.mistral.ai) | [Google AI](https://aistudio.google.com/apikey)
+- At least one AI API Key: [Groq](https://console.groq.com) (Free) | [Mistral](https://console.mistral.ai) | [Google AI](https://aistudio.google.com/apikey) | [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service)
 - *(Optional)* [Adzuna API Key](https://developer.adzuna.com/) for job search
 
 ### Installation
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/her0-00/RecruitIQ.git
-cd RecruitIQ
+git clone https://github.com/her0-00/IRIS---Improve-Resume-Intelligence-Studio.git
+cd IRIS---Improve-Resume-Intelligence-Studio
 
 # 2. Install Python backend dependencies
 pip install -r requirements.txt
 
-# 3. (Optional) Install Playwright for job scraping
+# 3. (Optional) Install Playwright for job scraping & Autonomous Hunter
 python -m playwright install chromium
 
 # 4. Install & start the Next.js frontend
@@ -174,8 +199,13 @@ Create a `.env.local` file in the `web/` directory (see `.env.example`):
 ```bash
 # At least one AI provider is required
 GROQ_API_KEY=your_groq_key_here
-MISTRAL_API_KEY=your_mistral_key_here     # optional
-GOOGLE_API_KEY=your_google_key_here       # optional
+MISTRAL_API_KEY=your_mistral_key_here         # optional
+GOOGLE_API_KEY=your_google_key_here           # optional
+
+# Azure OpenAI — optional
+AZURE_OPENAI_API_KEY=your_azure_key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+AZURE_OPENAI_DEPLOYMENT=your-deployment-name
 
 # Job Search (Adzuna) — optional
 ADZUNA_APP_ID=your_adzuna_app_id
@@ -238,7 +268,7 @@ User Upload
 ### File Structure
 
 ```
-RecruitIQ/
+IRIS/
 ├── backend/
 │   ├── extractor.py          # PDF text extraction (pdfminer.six)
 │   ├── pdf_cv.py             # PDF generation engine (ReportLab)
@@ -246,21 +276,32 @@ RecruitIQ/
 │   ├── worker.py             # Agent orchestration
 │   ├── photo_processor.py    # Profile photo processing (Pillow)
 │   ├── scraper_cli.py        # Playwright job scraper CLI
-│   ├── job_hunter_agent.py   # AI job relevance scoring
+│   ├── job_hunter_agent.py   # 🆕 Autonomous Hunter agent (Python)
 │   └── ats_metadata.py       # ATS compatibility metadata
 │
 ├── web/
 │   └── src/app/
-│       ├── page.tsx                    # Main UI + workflow logic
-│       ├── OnboardingTour.tsx          # Guided interactive tour
-│       ├── globals.css                 # Responsive styles
+│       ├── page.tsx                          # Main UI + workflow logic
+│       ├── OnboardingTour.tsx                # Guided interactive tour
+│       ├── AutonomousHunter.tsx              # 🆕 Autonomous Hunter component
+│       ├── globals.css                       # Responsive styles
 │       └── api/
-│           ├── extract/route.ts        # PDF text extraction
-│           ├── extract_keywords/route.ts # AI keyword extraction
-│           ├── search_jobs/route.ts    # Adzuna + Remotive search
-│           ├── analyze/route.ts        # CV analysis
-│           └── generate_cv/route.ts   # PDF/DOCX generation
+│           ├── extract/route.ts              # PDF text extraction
+│           ├── extract_keywords/route.ts     # AI keyword extraction
+│           ├── search_jobs/route.ts          # Adzuna + Remotive search
+│           ├── analyze/route.ts              # CV analysis
+│           ├── generate_cv/route.ts          # PDF/DOCX generation
+│           ├── generate_cover_letter/        # 🆕 AI Cover Letter API
+│           ├── autonomous-hunt/              # 🆕 Autonomous Hunter API (streaming)
+│           ├── company-colors/               # AI company brand color extraction
+│           └── job-hunter-results/           # 🆕 Hunt results management
+│               ├── data/                     #   → Load a specific result
+│               ├── history/                  #   → List/delete hunt history
+│               ├── source/                   #   → Get source URL
+│               └── view/                     #   → View generated PDF
 │
+├── web/public/stories/       # 🆕 Sample CVs (Sophie & Lucas before/after)
+├── ats_config.json           # 🆕 ATS scoring configuration
 ├── Dockerfile                # Docker build config
 ├── render.yaml               # Render.com deployment config
 ├── requirements.txt          # Python dependencies
@@ -273,8 +314,9 @@ RecruitIQ/
 |-------|-----------|
 | **Frontend** | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS |
 | **Backend** | Python 3.11, ReportLab, python-docx |
-| **AI Engine** | Groq API, Mistral AI, Google AI (Gemini) |
-| **Job Search** | Adzuna API, Remotive API, Playwright (headless scraping) |
+| **AI Engine** | Groq API, Mistral AI, Google AI (Gemini), **Azure OpenAI** |
+| **Autonomous Agent** | Python + Playwright (headless) + SSE streaming |
+| **Job Search** | Adzuna API, Remotive API, JobTeaser, WTTJ, HelloWork |
 | **Map** | Leaflet + React Leaflet |
 | **PDF Parsing** | pdfminer.six |
 | **Image Processing** | Pillow (face detection + optimization) |
@@ -346,11 +388,13 @@ IRIS integrates proven CV optimization techniques:
 
 ## 🛡️ Privacy & Security
 
-- **Zero Data Retention**: CV data is processed in-memory, never stored.
+- **Zero Data Retention**: CV data is processed in-memory, never stored permanently.
 - **Sub-Second AI**: Groq LPU technology ensures analysis completes in under 2 seconds.
 - **Local Photo Processing**: Photos never stored on servers.
 - **API Key Safety**: Keys stored client-side (localStorage), never logged server-side.
 - **Scraping Ethics**: Rate-limited, timeout-guarded, no credential theft.
+- **Temp File Cleanup**: Autonomous Hunter cleans up temp CV/letter files after each mission.
+- **Azure OpenAI**: Enterprise-grade AI option for organizations with strict data policies.
 
 ---
 
@@ -370,17 +414,19 @@ IRIS is fully responsive across all screen sizes:
 ## 🔭 Roadmap
 
 ### v4.2 (Short-term)
-- [ ] Redis cache for job scraping
-- [ ] Support Indeed + LinkedIn
-- [ ] CSV export of search results
-- [ ] Search history
+- [ ] Redis cache for job scraping results
+- [ ] Support Indeed + LinkedIn scraping
+- [ ] CSV export of hunt results
+- [ ] Scheduled autonomous hunts (cron)
+- [ ] Email notifications for new matches
 
 ### v5.0 (Long-term)
 - [ ] User accounts + authentication
-- [ ] Cloud CV storage
+- [ ] Cloud CV + letter storage
 - [ ] Application tracking dashboard
 - [ ] Multi-language UI (EN/FR/ES)
 - [ ] Analytics dashboard
+- [ ] Chrome extension for 1-click job scraping
 
 ---
 
@@ -388,8 +434,8 @@ IRIS is fully responsive across all screen sizes:
 
 ```bash
 # 1. Fork and clone
-git clone https://github.com/her0-00/RecruitIQ.git
-cd RecruitIQ
+git clone https://github.com/her0-00/IRIS---Improve-Resume-Intelligence-Studio.git
+cd IRIS---Improve-Resume-Intelligence-Studio
 
 # 2. Install dependencies
 pip install -r requirements.txt
@@ -400,11 +446,11 @@ cd web && npm install
 npm run dev
 ```
 
-To add a new scraping source:
-1. Create a function in `backend/scraper_cli.py`
-2. Add it to the `scrape_all()` workflow
-3. Test: `python scraper_cli.py "developer" "France"`
-4. Update `sources` in `web/src/app/api/search_jobs/route.ts`
+To add a new scraping source to the Autonomous Hunter:
+1. Add a scraping function in `backend/job_hunter_agent.py`
+2. Register it in the `search_mode` logic
+3. Test: `python backend/job_hunter_agent.py --query "developer" --location "France" --provider groq --key YOUR_KEY`
+4. Update the `searchMode` selector in `web/src/app/AutonomousHunter.tsx`
 
 ---
 
@@ -419,6 +465,7 @@ To add a new scraping source:
 | `TESTING_CHECKLIST.md` | Test scenarios |
 | `SECURITY_AUDIT.md` | Security audit report |
 | `PHOTO_FEATURE.md` | Photo feature documentation |
+| `ats_config.json` | ATS scoring weights and configuration |
 
 ---
 
@@ -429,6 +476,6 @@ MIT — See [LICENSE](LICENSE) for details.
 ---
 
 <div align="center">
-  <strong>⬡ IRIS v4.1 — Production Ready 🚀</strong><br/>
-  Built with ❤️ · Next.js 16 · Python 3.11 · ReportLab · Groq · Mistral · Gemini
+  <strong>⬡ IRIS v4.2 — Production Ready 🚀</strong><br/>
+  Built with ❤️ · Next.js 16 · Python 3.11 · ReportLab · Groq · Mistral · Gemini · Azure OpenAI
 </div>
