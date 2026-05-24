@@ -1,5 +1,11 @@
 import sys
 import os
+import io
+# Force UTF-8 stdout on Windows to avoid surrogate/encoding crashes
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+else:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 import socket
 import httpx
 import requests
@@ -175,8 +181,15 @@ class JobHunterAgent:
 
     def log(self, tag: str, message: str):
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        icons = {"NAV": "🌐", "THINK": "🧠", "EXTRACT": "📄", "MATCH": "🎯", "SAVE": "💾", "ERROR": "⚠️", "AI": "🤖"}
-        print(f"[{timestamp}] {icons.get(tag, '•')} [{tag}] {message}", flush=True)
+        icons = {"NAV": "[NAV]", "THINK": "[AI]", "EXTRACT": "[EXT]", "MATCH": "[MATCH]", "SAVE": "[SAVE]", "ERROR": "[ERR]", "AI": "[AI]"}
+        emoji_icons = {"NAV": "\U0001f310", "THINK": "\U0001f9e0", "EXTRACT": "\U0001f4c4", "MATCH": "\U0001f3af", "SAVE": "\U0001f4be", "ERROR": "\u26a0\ufe0f", "AI": "\U0001f916"}
+        icon = emoji_icons.get(tag, "\u2022")
+        # Sanitize surrogates from message before printing (Windows stdout safety)
+        safe_msg = message.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+        line = f"[{timestamp}] {icon} [{tag}] {safe_msg}"
+        # Also sanitize the line itself
+        safe_line = line.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+        print(safe_line, flush=True)
 
     def _brainstorm_corporate_targets(self, query: str, location: str) -> Dict[str, str]:
         self.log("THINK", f"L'IA analyse le domaine '{query}' ({location}) pour identifier les meilleurs recruteurs de ce secteur...")
@@ -277,24 +290,108 @@ Do NOT output any markdown, code blocks, or preamble. Just raw JSON."""
         for company in targeted_companies:
             search_queries.append(f'"{company}" "{query}"{loc_str}')
 
+        def _wait_for_cloudflare(page, timeout_ms=120000):
+            """Wait for Cloudflare Turnstile/challenge to resolve (manual or auto). Returns True if page is clear."""
+            deadline = time.time() + timeout_ms / 1000
+            while time.time() < deadline:
+                page.wait_for_timeout(2000)
+                content = page.content().lower()
+                if 'verify you are human' not in content and 'test de s\u00e9curit\u00e9' not in content and 'checking your browser' not in content:
+                    return True
+            return False
+
         try:
             with sync_playwright() as p:
-                # Launch browser in headless mode to completely bypass localized cookie/consent gates
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=["--disable-blink-features=AutomationControlled"]
-                )
-                context = browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                    viewport={'width': 1280, 'height': 800}
-                )
-                page = context.new_page()
+                search_mode = self.config.get("search_mode", "all")
+                jt_url = self.config.get("jobteaser_url", "").strip().rstrip('/')
+                jt_email = self.config.get("jobteaser_email")
+                jt_pass = self.config.get("jobteaser_password")
+
+                # JobTeaser = navigateur VISIBLE pour que l'utilisateur puisse valider Cloudflare manuellement
+                use_headful = (search_mode == "jobteaser" and jt_url and jt_email and jt_pass)
+
+                if use_headful:
+                    self.log("NAV", "Mode navigateur VISIBLE activ\u00e9 (utilisation de Edge/Chrome r\u00e9el pour Cloudflare)...")
+                    launched = False
+                    use_persistent = False
+                    for channel in ['msedge', 'chrome']:
+                        try:
+                            browser = p.chromium.launch(
+                                channel=channel,
+                                headless=False,
+                                slow_mo=80,
+                                ignore_default_args=["--enable-automation"],
+                                args=[
+                                    "--disable-blink-features=AutomationControlled",
+                                    "--start-maximized",
+                                    "--no-sandbox",
+                                ]
+                            )
+                            self.log("NAV", f"Navigateur r\u00e9el ({channel}) lanc\u00e9 en mode ultra-discret.")
+                            launched = True
+                            break
+                        except Exception as e:
+                            self.log("NAV", f"Navigateur {channel} introuvable...")
+                    
+                    if not launched:
+                        self.log("NAV", "Aucun navigateur r\u00e9el trouv\u00e9. Bascule sur Chromium basique...")
+                        browser = p.chromium.launch(
+                            headless=False,
+                            slow_mo=80,
+                            args=[
+                                "--disable-blink-features=AutomationControlled",
+                                "--no-sandbox",
+                                "--start-maximized",
+                            ]
+                        )
+                else:
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=[
+                            "--disable-blink-features=AutomationControlled",
+                            "--no-sandbox",
+                            "--disable-dev-shm-usage",
+                            "--disable-web-security",
+                            "--disable-features=IsolateOrigins,site-per-process",
+                            "--flag-switches-begin",
+                            "--disable-site-isolation-trials",
+                            "--flag-switches-end",
+                        ]
+                    )
+
+                if not use_headful or not locals().get('use_persistent', False):
+                    use_persistent = False
+                    context = browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                        viewport={'width': 1366, 'height': 768},
+                        locale='fr-FR',
+                        timezone_id='Europe/Paris',
+                        extra_http_headers={
+                            'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                            'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                            'sec-ch-ua-mobile': '?0',
+                            'sec-ch-ua-platform': '"Windows"',
+                            'Upgrade-Insecure-Requests': '1',
+                        }
+                    )
+                    
+                    if not use_headful:
+                        # Only use these anti-bot scripts in headless mode. 
+                        # In headful, Cloudflare detects these exact overrides as malicious extensions.
+                        context.add_init_script("""
+                            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                            Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr', 'en-US', 'en'] });
+                            window.chrome = { runtime: {} };
+                        """)
+                    page = context.new_page()
+
                 
                 # --- SECTION 1: BASIC YAHOO SEARCH & PORTALS ---
                 portals_to_explore = []
-                search_mode = self.config.get("search_mode", "all")
                 if search_mode == "jobteaser":
-                    self.log("NAV", "Mode 'JobTeaser Uniquement' activé. Recherche basique Web (Yahoo) ignorée.")
+                    self.log("NAV", "Mode 'JobTeaser Uniquement' activ\u00e9. Recherche basique Web (Yahoo) ignor\u00e9e.")
                 else:
                     self.log("NAV", "Exécution de la recherche basique multi-sources (Yahoo)...")
                     import urllib.parse
@@ -494,63 +591,139 @@ Do NOT output any markdown, code blocks, or preamble. Just raw JSON."""
                             self.log("ERROR", f"Erreur lors de l'exploration du portail {portal_url[:50]} : {str(e)}")
 
                 # --- SECTION 2: JOBTEASER INTEGRATION ---
-                jt_url = self.config.get("jobteaser_url", "").strip().rstrip('/')
-                jt_email = self.config.get("jobteaser_email")
-                jt_pass = self.config.get("jobteaser_password")
-                
                 if jt_url and jt_email and jt_pass:
-                    self.log("NAV", f"Tentative de connexion à JobTeaser via {jt_url}...")
+                    self.log("NAV", f"Tentative de connexion \u00e0 JobTeaser via {jt_url}...")
                     try:
-                        page.goto(f"{jt_url}/fr/users/sign_in")
+                        login_url = f"{jt_url}/fr/users/sign_in"
+                        page.goto(login_url, wait_until='domcontentloaded', timeout=30000)
+
+                        if use_headful:
+                            # Always wait on login page in headful mode — Cloudflare may appear at any point
+                            self.log("NAV", "\ud83d\udda5\ufe0f Navigateur ouvert sur JobTeaser. Si un 'Test de s\u00e9curit\u00e9' appara\u00eet, \ud83d\udc46 CLIQUEZ sur la case puis attendez que la page de connexion s'affiche. Vous avez 2 minutes...")
+                            cf_resolved = _wait_for_cloudflare(page, timeout_ms=120000)
+                            if not cf_resolved:
+                                self.log("ERROR", "\u274c Timeout: Cloudflare non r\u00e9solu sur la page de login. JobTeaser ignor\u00e9.")
+                                page.screenshot(path="jt_debug.png", full_page=True)
+                                raise Exception("Cloudflare not resolved on login page")
+                            self.log("NAV", "\u2705 Page de connexion accessible ! Remplissage du formulaire en cours...")
+                        else:
+                            page.wait_for_timeout(2000)
+                            page_content = page.content().lower()
+                            if 'verify you are human' in page_content or 'test de s\u00e9curit\u00e9' in page_content:
+                                self.log("NAV", "\u23f3 Cloudflare d\u00e9tect\u00e9. Attente de r\u00e9solution automatique (20s)...")
+                                cf_resolved = _wait_for_cloudflare(page, timeout_ms=20000)
+                                if not cf_resolved:
+                                    self.log("ERROR", "\u274c Cloudflare non r\u00e9solu sur la page de connexion. JobTeaser ignor\u00e9.")
+                                    page.screenshot(path="jt_debug.png", full_page=True)
+                                    raise Exception("Cloudflare not resolved")
+                                self.log("NAV", "\u2705 Cloudflare r\u00e9solu ! Reprise de la connexion...")
+
+                        # Wait for login form
+                        try:
+                            page.wait_for_selector("input[type='email']", timeout=8000)
+                        except:
+                            self.log("ERROR", "Formulaire de connexion JobTeaser introuvable (bloqu\u00e9 ?).")
+                            page.screenshot(path="jt_debug.png", full_page=True)
+                            raise Exception("Login form not found")
+
                         page.fill("input[type='email']", jt_email)
+                        page.wait_for_timeout(500)
                         page.fill("input[type='password']", jt_pass)
+                        page.wait_for_timeout(500)
                         page.click("button[type='submit']")
-                        page.wait_for_timeout(4000)
+                        page.wait_for_timeout(5000)
                         
-                        if "sign_in" not in page.url:
-                            self.log("NAV", f"Connecté à JobTeaser ! Recherche d'offres pour : '{query}'...")
-                            search_jt = f"{jt_url}/fr/job-offers?q={query.replace(' ', '+')}"
+                        if "sign_in" not in page.url and "cloudflare" not in page.url:
+                            self.log("NAV", f"Connect\u00e9 \u00e0 JobTeaser ! Recherche d'offres pour : '{query}'...")
+                            import urllib.parse as _up
+                            search_jt = f"{jt_url}/fr/job-offers?q={_up.quote(query)}"
                             if location:
-                                search_jt += f"&localized_location={location.replace(' ', '+')}"
+                                search_jt += f"&localized_location={_up.quote(location)}"
                             
-                            page.goto(search_jt)
-                            
+                            page.goto(search_jt, wait_until='domcontentloaded', timeout=30000)
+                            page.wait_for_timeout(3000)
+
+                            # --- Handle Cloudflare on search results page ---
+                            page_content = page.content().lower()
+                            if 'verify you are human' in page_content or 'test de s\u00e9curit\u00e9' in page_content:
+                                if use_headful:
+                                    self.log("NAV", "\u23f3 Cloudflare sur les r\u00e9sultats ! \ud83d\udc46 CLIQUEZ sur la case 'Verify you are human'. Vous avez 2 minutes...")
+                                else:
+                                    self.log("NAV", "\u23f3 Cloudflare d\u00e9tect\u00e9 sur la page des r\u00e9sultats. Attente (20s)...")
+                                cf_resolved = _wait_for_cloudflare(page, timeout_ms=120000 if use_headful else 20000)
+                                if not cf_resolved:
+                                    self.log("ERROR", "\u274c Cloudflare bloque la page de r\u00e9sultats JobTeaser.")
+                                    page.screenshot(path="jt_debug.png", full_page=True)
+                                    raise Exception("Cloudflare block on results page")
+                                self.log("NAV", "\u2705 Cloudflare r\u00e9solu sur la page des r\u00e9sultats !")
+                                page.wait_for_timeout(2000)
+
                             try:
                                 page.wait_for_selector('a[href*="/job-offers/"]', timeout=10000)
                             except:
                                 self.log("NAV", "Attention: Les offres JobTeaser semblent longues à charger ou aucune offre trouvée.")
                             
-                            page.wait_for_timeout(3000)
+                            page.wait_for_timeout(2000)
                             
                             jt_jobs = page.evaluate("""() => {
-                                return Array.from(document.querySelectorAll('a[class*="JobAdCard"]')).map(a => {
+                                // Sanitize text: remove surrogate characters that break UTF-8 encoding
+                                function cleanText(s) {
+                                    if (!s) return '';
+                                    return s.replace(/[\\uD800-\\uDFFF]/g, '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                                }
+                                // Selector 1: named card components
+                                let jobs = Array.from(document.querySelectorAll('a[class*="JobAdCard"], a[class*="job-ad-card"], a[class*="offer-card"]')).map(a => {
                                     let comp = '';
                                     let img = a.querySelector('img');
-                                    if (img && img.alt) comp = img.alt.toLowerCase().replace(/logo (de |d')?/g, '').trim();
-                                    return { href: a.href, text: a.innerText.toLowerCase(), company: comp };
+                                    if (img && img.alt) comp = cleanText(img.alt.replace(/logo (de |d')?/gi, ''));
+                                    return { href: a.href, text: cleanText(a.innerText), company: comp };
                                 });
+                                return jobs;
                             }""")
                             
                             if not jt_jobs:
+                                # Fallback: any /job-offers/ link not pointing to applications
                                 jt_jobs = page.evaluate("""() => {
-                                    return Array.from(document.querySelectorAll('a')).filter(a => a.href.includes('/job-offers/') && !a.href.includes('/applications')).map(a => {
-                                        return { href: a.href, text: a.innerText.toLowerCase(), company: '' };
+                                    function cleanText(s) {
+                                        if (!s) return '';
+                                        return s.replace(/[\\uD800-\\uDFFF]/g, '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                                    }
+                                    return Array.from(document.querySelectorAll('a')).filter(a => {
+                                        let h = a.href;
+                                        return h.includes('/job-offers/') && !h.includes('/applications') && !h.includes('/search') && h.split('/').length > 5;
+                                    }).map(a => {
+                                        let comp = '';
+                                        let card = a.closest('[class*="card"], [class*="Card"], article, li');
+                                        if (card) {
+                                            let img = card.querySelector('img[alt]');
+                                            if (img) comp = cleanText(img.alt.replace(/logo (de |d')?/gi, ''));
+                                        }
+                                        let cardEl = a.closest('article, li, div');
+                                        let txt = cleanText(a.innerText) || (cardEl ? cleanText(cardEl.innerText) : '');
+                                        return { href: a.href, text: txt, company: comp };
                                     });
                                 }""")
                                 
+                            # Python-side surrogate safety
+                            def _safe_str(s):
+                                if not s:
+                                    return ''
+                                return s.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+
                             if not jt_jobs:
-                                self.log("ERROR", "0 offre trouvée sur JobTeaser. Capture de debug enregistrée.")
+                                self.log("ERROR", "0 offre trouv\u00e9e sur JobTeaser. Capture de debug enregistr\u00e9e.")
                                 page.screenshot(path="jt_debug.png", full_page=True)
                             else:
-                                self.log("NAV", f"{len(jt_jobs)} offres trouvées sur JobTeaser.")
+                                self.log("NAV", f"{len(jt_jobs)} offres trouv\u00e9es sur JobTeaser.")
                                 for job in jt_jobs:
                                     candidates.append({
-                                        'href': job['href'],
-                                        'text': job['text'],
-                                        'company': job['company']
+                                        'href': _safe_str(job.get('href', '')),
+                                        'text': _safe_str(job.get('text', '')),
+                                        'company': _safe_str(job.get('company', ''))
                                     })
                         else:
-                            self.log("ERROR", f"Échec de connexion à JobTeaser ({jt_url})")
+                            self.log("ERROR", f"Échec de connexion à JobTeaser ({jt_url}) — Redirection inattendue vers : {page.url}")
+                            page.screenshot(path="jt_debug.png", full_page=True)
                     except Exception as e:
                         self.log("ERROR", f"Erreur JobTeaser : {str(e)}")
                 
