@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
 import { Mistral } from '@mistralai/mistralai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-type AIProvider = 'groq' | 'mistral' | 'google';
+type AIProvider = 'groq' | 'mistral' | 'google' | 'azure';
 
 /**
  * PRIVACY PROTECTION (Free Tier):
@@ -288,6 +289,74 @@ async function callGroq(
   throw lastError;
 }
 
+async function callAzure(
+  apiKey: string,
+  endpoint: string,
+  primaryDeployment: string,
+  system: string,
+  userMsg: string,
+  label: string,
+  timeoutMs: number = 120000
+): Promise<{ data: any; model: string }> {
+  // Smart fallback list
+  const fallbackDeployments = [
+    primaryDeployment,
+    'gpt-5.4-pro',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5',
+    'gpt-5-mini',
+    'gpt-4o',
+    'gpt-4o-mini',
+    'gpt-4-turbo',
+    'gpt-35-turbo'
+  ].filter(d => d && d.length > 0);
+  
+  // Remove duplicates while preserving order
+  const deployments = Array.from(new Set(fallbackDeployments));
+  
+  let lastError: any = null;
+
+  for (const deployment of deployments) {
+    const client = new OpenAI({
+      apiKey,
+      baseURL: `${endpoint}/openai/deployments/${deployment}`,
+      defaultQuery: { 'api-version': '2024-02-15-preview' },
+      defaultHeaders: { 'api-key': apiKey },
+    });
+
+    const modelStartTime = performance.now();
+    try {
+      console.log(`[${label}] Trying Azure OpenAI deployment: ${deployment}`);
+      const response = await Promise.race([
+        client.chat.completions.create({
+          model: deployment,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: userMsg },
+          ],
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
+      ]);
+
+      const duration = ((performance.now() - modelStartTime) / 1000).toFixed(1);
+      const raw = (response as any).choices?.[0]?.message?.content || '';
+      const data = extractJson(raw);
+      console.log(`[${label}][${deployment}] Success in ${duration}s`);
+      return { data, model: deployment };
+    } catch (err: any) {
+      const duration = ((performance.now() - modelStartTime) / 1000).toFixed(1);
+      console.error(`[${label}][${deployment}] Error after ${duration}s:`, err.message);
+      lastError = err;
+      // Continue to next fallback
+    }
+  }
+
+  throw lastError || new Error(`All Azure deployments failed for ${label}`);
+}
+
 // --- HANDLERS ---
 
 export async function GET(req: Request) {
@@ -307,13 +376,14 @@ async function performAnalysis(jobId: string, params: any) {
     job.status = 'processing';
     job.progress = 'Starting Analysis...';
     
-    const { cv_text, job_desc, api_key, boost_mode, lang, ai_provider } = params;
+    const { cv_text, job_desc, api_key, boost_mode, lang, ai_provider, azure_endpoint, azure_deployment } = params;
     const provider: AIProvider = ai_provider || 'groq';
     const outputLang = lang === 'en' ? 'English' : 'French';
 
-    const apiKeyRaw = api_key || (provider === 'groq' ? process.env.GROQ_API_KEY : provider === 'mistral' ? process.env.MISTRAL_API_KEY : process.env.GOOGLE_API_KEY);
-    if (!apiKeyRaw) throw new Error(`Missing ${provider} API Key`);
-    const apiKeyToUse = apiKeyRaw.replace(/[^\x20-\x7E]/g, '').trim();
+    const apiKeyRaw = api_key || (provider === 'groq' ? process.env.GROQ_API_KEY : provider === 'mistral' ? process.env.MISTRAL_API_KEY : provider === 'google' ? process.env.GOOGLE_API_KEY : process.env.AZURE_OPENAI_API_KEY);
+    if (!apiKeyRaw && provider !== 'azure') throw new Error(`Missing ${provider} API Key`);
+    if (provider === 'azure' && !apiKeyRaw) throw new Error('Missing Azure API Key');
+    const apiKeyToUse = apiKeyRaw ? apiKeyRaw.replace(/[^\x20-\x7E]/g, '').trim() : '';
 
     let cleanCvText = sanitizeCvText(cv_text);
     
@@ -380,7 +450,9 @@ Output ONLY the raw JSON object. Do not add any explanation, markdown, or text o
       ? await callGroq(new Groq({ apiKey: apiKeyToUse }), system1, prompt1, 'Agent1-Audit', 120000, 4096)
       : provider === 'mistral'
       ? await callMistral(new Mistral({ apiKey: apiKeyToUse, timeoutMs: 120000 }), system1, prompt1, 'Agent1-Audit', 120000, 4096)
-      : await callGoogle(apiKeyToUse, system1, prompt1, 'Agent1-Audit', 120000);
+      : provider === 'google'
+      ? await callGoogle(apiKeyToUse, system1, prompt1, 'Agent1-Audit', 120000)
+      : await callAzure(apiKeyToUse, azure_endpoint || process.env.AZURE_OPENAI_ENDPOINT || '', azure_deployment || process.env.AZURE_OPENAI_DEPLOYMENT || '', system1, prompt1, 'Agent1-Audit');
     
     const analysisData = agent1Result.data;
     const currentScore = analysisData.global_score || 0;
@@ -470,7 +542,9 @@ IMPORTANT: The output language is ${outputLang.toUpperCase()}. Translate ALL rol
       ? await callGroq(new Groq({ apiKey: apiKeyToUse }), system2, prompt2, 'Agent2-Rewrite', 120000, 6000)
       : provider === 'mistral'
       ? await callMistral(new Mistral({ apiKey: apiKeyToUse, timeoutMs: 120000 }), system2, prompt2, 'Agent2-Rewrite', 120000, 6000)
-      : await callGoogle(apiKeyToUse, system2, prompt2, 'Agent2-Rewrite', 120000);
+      : provider === 'google'
+      ? await callGoogle(apiKeyToUse, system2, prompt2, 'Agent2-Rewrite', 120000)
+      : await callAzure(apiKeyToUse, azure_endpoint || process.env.AZURE_OPENAI_ENDPOINT || '', azure_deployment || process.env.AZURE_OPENAI_DEPLOYMENT || '', system2, prompt2, 'Agent2-Rewrite');
     
     const llmFields = agent2Result.data;
 

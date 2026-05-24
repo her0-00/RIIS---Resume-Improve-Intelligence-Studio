@@ -4,15 +4,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import json
 import io
 import traceback
-from backend.pdf_cv import THEMES, _ClassicDark
+from backend.pdf_cv import THEMES, _ClassicDark, generate_cover_letter_pdf
 from backend.docx_cv import generate_cv_docx
 
 def get_theme_class(theme_name):
     return THEMES.get(theme_name, _ClassicDark)
 
 def generate_pdf(cv_data, theme="Classic Dark", is_cover_letter=False):
-    # Depending on your implementation, cover letter logic can be added.
-    # Currently pointing to the robust CV generator based on theme.
+    if is_cover_letter:
+        return generate_cover_letter_pdf(cv_data, theme=theme)
     theme_cls = get_theme_class(theme)
     # The new structure has `generate` method on the theme class
     pdf_bytes = theme_cls.generate(cv_data)

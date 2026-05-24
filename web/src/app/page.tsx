@@ -6,6 +6,7 @@ import { cvExamples } from './examples';
 import OnboardingTour from './OnboardingTour';
 import SimplePDFEditor from './SimplePDFEditor';
 import CVComparison from './CVComparison';
+import AutonomousHunter from './AutonomousHunter';
 import dynamic from 'next/dynamic';
 
 const JobMap = dynamic(() => import('./JobMap'), {
@@ -98,7 +99,7 @@ const ALL_THEMES = THEME_CATEGORIES.flatMap(c => c.themes);
 
 export default function Home() {
   const [apiKey, setApiKey] = useState('');
-  const [aiProvider, setAiProvider] = useState<'groq' | 'mistral' | 'google'>('groq');
+  const [aiProvider, setAiProvider] = useState<'groq' | 'mistral' | 'google' | 'azure'>('groq');
   const [jobDesc, setJobDesc] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [cvText, setCvText] = useState('');
@@ -118,9 +119,22 @@ export default function Home() {
   const [editedCvDataJSON, setEditedCvDataJSON] = useState<string>('');
   const [pdfData, setPdfData] = useState<{ base64: string, filename: string } | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'audit' | 'sections' | 'edit' | 'pdf' | 'tips' | 'jobs' | 'compare'>('audit');
+  const [activeTab, setActiveTab] = useState<'audit' | 'sections' | 'edit' | 'pdf' | 'tips' | 'jobs' | 'compare' | 'hunt' | 'letter'>('audit');
   const [visualEditMode, setVisualEditMode] = useState(false);
   const [isFullscreenUI, setIsFullscreenUI] = useState(false);
+
+  // States for cover letter
+  const [oldLetterText, setOldLetterText] = useState('');
+  const [letterCompanyName, setLetterCompanyName] = useState('');
+  const [letterCompanyAddress, setLetterCompanyAddress] = useState('');
+  const [letterHiringManager, setLetterHiringManager] = useState('');
+  const [letterSubject, setLetterSubject] = useState('');
+  const [letterDataJSON, setLetterDataJSON] = useState<string>('');
+  const [letterPdfData, setLetterPdfData] = useState<{ base64: string, filename: string } | null>(null);
+  const [letterPdfUrl, setLetterPdfUrl] = useState<string>('');
+  const [isGeneratingLetter, setIsGeneratingLetter] = useState(false);
+  const [letterProgress, setLetterProgress] = useState('');
+  const [letterEditorTab, setLetterEditorTab] = useState<'visual' | 'json'>('visual');
 
   // CV Studio Customization States
   const [customAccent, setCustomAccent] = useState('');
@@ -144,6 +158,11 @@ export default function Home() {
   const [brandPalettes, setBrandPalettes] = useState<any[]>([]);
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [isLoadingColors, setIsLoadingColors] = useState(false);
+  const [azureEndpoint, setAzureEndpoint] = useState('');
+  const [azureDeployment, setAzureDeployment] = useState('');
+  const [jobteaserUrl, setJobteaserUrl] = useState('https://univ-ubs.jobteaser.com');
+  const [jobteaserEmail, setJobteaserEmail] = useState('');
+  const [jobteaserPassword, setJobteaserPassword] = useState('');
 
   // Job Search states
   const [isSearchingJobs, setIsSearchingJobs] = useState(false);
@@ -234,6 +253,8 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [atsKeywords, setAtsKeywords] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const letterFileInputRef = useRef<HTMLInputElement>(null);
+  const [letterFile, setLetterFile] = useState<File | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -243,6 +264,10 @@ export default function Home() {
     // Load saved Adzuna Keys
     if (localStorage.getItem('adzunaAppId')) setAdzunaAppId(localStorage.getItem('adzunaAppId') || '');
     if (localStorage.getItem('adzunaAppKey')) setAdzunaAppKey(localStorage.getItem('adzunaAppKey') || '');
+    // Load saved JobTeaser Keys
+    if (localStorage.getItem('jobteaserUrl')) setJobteaserUrl(localStorage.getItem('jobteaserUrl') || 'https://univ-ubs.jobteaser.com');
+    if (localStorage.getItem('jobteaserEmail')) setJobteaserEmail(localStorage.getItem('jobteaserEmail') || '');
+    if (localStorage.getItem('jobteaserPassword')) setJobteaserPassword(localStorage.getItem('jobteaserPassword') || '');
 
     // Load saved UI theme
     const savedTheme = localStorage.getItem('ui-theme') as typeof uiTheme | null;
@@ -252,6 +277,40 @@ export default function Home() {
     } else {
       // Set default theme to violet-electric if no saved theme
       document.documentElement.setAttribute('data-theme', 'violet-electric');
+    }
+
+    // Handle Job Hunter result loading
+    const folder = params.get('edit_job_hunter');
+    if (folder) {
+      const loadResult = async () => {
+        try {
+          const res = await fetch(`/api/job-hunter-results/data?folder=${folder}`);
+          const data = await res.json();
+          if (data.optimized_cv_json) {
+            setEditedCvDataJSON(JSON.stringify(data.optimized_cv_json, null, 2));
+            if (data.theme) setSelectedTheme(data.theme);
+            
+            if (data.cover_letter_json) {
+              setLetterCompanyName(data.cover_letter_json.company_name || '');
+              setLetterCompanyAddress(data.cover_letter_json.company_address || '');
+              setLetterHiringManager(data.cover_letter_json.hiring_manager || '');
+              setLetterSubject(data.cover_letter_json.subject || '');
+              setLetterDataJSON(JSON.stringify(data.cover_letter_json, null, 2));
+              
+              // Automatically render loaded cover letter PDF
+              handleGenerateLetterPdf(data.cover_letter_json);
+            }
+            
+            setActiveTab('edit');
+            // Remove the param from URL without reloading
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, '', newUrl);
+          }
+        } catch (err) {
+          console.error("Failed to load result:", err);
+        }
+      };
+      loadResult();
     }
   }, []);
 
@@ -335,16 +394,39 @@ export default function Home() {
       try {
         const res = await fetch('/api/extract', { method: 'POST', body: formData });
         const data = await res.json();
-        
+
         if (data.error) {
           alert(data.error);
           return;
         }
-        
+
         setCvText(data.text || '');
       } catch (err: any) {
         console.error(err);
         alert("Erreur lors de l'extraction : " + err.message);
+      }
+    }
+  };
+
+  const handleLetterFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) {
+      setLetterFile(f);
+      const formData = new FormData();
+      formData.append('file', f);
+      try {
+        const res = await fetch('/api/extract', { method: 'POST', body: formData });
+        const data = await res.json();
+
+        if (data.error) {
+          alert(data.error);
+          return;
+        }
+
+        setOldLetterText(data.text || '');
+      } catch (err: any) {
+        console.error(err);
+        alert("Erreur lors de l'extraction de la lettre : " + err.message);
       }
     }
   };
@@ -362,7 +444,16 @@ export default function Home() {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cv_text: cvText, job_desc: jobDesc, api_key: apiKey, boost_mode: boostMode, lang, ai_provider: aiProvider })
+        body: JSON.stringify({ 
+          cv_text: cvText, 
+          job_desc: jobDesc, 
+          api_key: apiKey, 
+          boost_mode: boostMode, 
+          lang, 
+          ai_provider: aiProvider,
+          azure_endpoint: azureEndpoint,
+          azure_deployment: azureDeployment
+        })
       });
       const { jobId, error } = await res.json();
       if (error) throw new Error(error);
@@ -473,7 +564,11 @@ export default function Home() {
       if (pdfUrl) URL.revokeObjectURL(pdfUrl);
       setPdfUrl(url);
       setPdfData({ base64: data.pdf_base64, filename: `CV_${cvDataToUse.name.replace(/ /g, '_')}_${selectedTheme}.pdf` });
-      setActiveTab('pdf');
+      
+      const shouldSwitch = (cvDataOverride && cvDataOverride.nativeEvent) ? true : !cvDataOverride;
+      if (shouldSwitch) {
+        setActiveTab('pdf');
+      }
       setNeedsUpdate(false);
     } catch (err: any) {
       alert("PDF Gen error: " + err.message);
@@ -481,6 +576,123 @@ export default function Home() {
       setIsGenerating(false);
     }
   };
+
+  const handleGenerateLetterPdf = async (letterDataOverride?: any) => {
+    let letterToUse;
+    if (letterDataOverride) {
+      letterToUse = letterDataOverride;
+    } else if (letterDataJSON && letterDataJSON.trim()) {
+      try {
+        letterToUse = JSON.parse(letterDataJSON);
+      } catch {
+        return; // Invalid JSON
+      }
+    } else {
+      return;
+    }
+
+    try {
+      const payload = {
+        cv_data: {
+          ...letterToUse,
+          company_name: letterCompanyName || letterToUse.company_name,
+          company_address: letterCompanyAddress || letterToUse.company_address,
+          hiring_manager: letterHiringManager || letterToUse.hiring_manager,
+          subject: letterSubject || letterToUse.subject,
+          lang
+        },
+        theme: selectedTheme,
+        is_cover_letter: true
+      };
+
+      const res = await fetch('/api/generate_cv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      if (data.pdf_base64) {
+        const byteCharacters = atob(data.pdf_base64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+
+        if (letterPdfUrl) URL.revokeObjectURL(letterPdfUrl);
+        setLetterPdfUrl(url);
+        setLetterPdfData({
+          base64: data.pdf_base64,
+          filename: `Lettre_de_motivation_${(letterCompanyName || letterToUse.company_name || 'Candidature').replace(/\s+/g, '_')}.pdf`
+        });
+      }
+    } catch (err: any) {
+      console.error("Letter PDF Gen error:", err);
+    }
+  };
+
+  const handleTailorLetter = async () => {
+    if (!apiKey) return alert("Veuillez saisir votre clé d'API dans la barre latérale.");
+    setIsGeneratingLetter(true);
+    setLetterProgress("Tailoring and refining the cover letter...");
+    try {
+      const currentCvTextToUse = cvText || (editedCvDataJSON ? JSON.parse(editedCvDataJSON).summary : '');
+      const res = await fetch('/api/generate_cover_letter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cv_text: currentCvTextToUse,
+          old_letter_text: oldLetterText,
+          job_desc: jobDesc,
+          company_name: letterCompanyName,
+          company_address: letterCompanyAddress,
+          hiring_manager: letterHiringManager,
+          subject: letterSubject,
+          api_key: apiKey,
+          ai_provider: aiProvider,
+          azure_endpoint: azureEndpoint,
+          azure_deployment: azureDeployment,
+          lang
+        })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      if (data.data) {
+        setLetterDataJSON(JSON.stringify(data.data, null, 2));
+        if (data.data.company_name) setLetterCompanyName(data.data.company_name);
+        if (data.data.company_address) setLetterCompanyAddress(data.data.company_address);
+        if (data.data.hiring_manager) setLetterHiringManager(data.data.hiring_manager);
+        if (data.data.subject) setLetterSubject(data.data.subject);
+
+        await handleGenerateLetterPdf(data.data);
+      }
+    } catch (err: any) {
+      alert("Erreur lors de la génération de la lettre : " + err.message);
+    } finally {
+      setIsGeneratingLetter(false);
+      setLetterProgress('');
+    }
+  };
+
+  // Auto-regeneration of Letter PDF when content changes
+  useEffect(() => {
+    if (!letterPdfData) return;
+    const timer = setTimeout(() => {
+      handleGenerateLetterPdf();
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [letterCompanyName, letterCompanyAddress, letterHiringManager, letterSubject, letterDataJSON, selectedTheme]);
+
+  useEffect(() => {
+    return () => {
+      if (letterPdfUrl) URL.revokeObjectURL(letterPdfUrl);
+    };
+  }, [letterPdfUrl]);
 
   const handleShuffleColors = async () => {
     const trimmedCompany = targetCompany.trim();
@@ -512,7 +724,13 @@ export default function Home() {
       const res = await fetch('/api/company-colors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ company_name: trimmedCompany, api_key: apiKey, ai_provider: aiProvider }),
+        body: JSON.stringify({ 
+          company_name: trimmedCompany, 
+          api_key: apiKey, 
+          ai_provider: aiProvider,
+          azure_endpoint: azureEndpoint,
+          azure_deployment: azureDeployment
+        }),
         cache: 'no-store'
       });
       const data = await res.json();
@@ -580,6 +798,48 @@ export default function Home() {
       alert("Erreur DeepSearch: " + err.message);
     } finally {
       setIsSearchingJobs(false);
+    }
+  };
+
+  const loadJobHunterResult = async (folder: string, targetTab: 'edit' | 'letter' = 'edit') => {
+    try {
+      setAnalysisProgress('Chargement du résultat de la chasse...');
+      setIsAnalyzing(true);
+      const res = await fetch(`/api/job-hunter-results/data?folder=${folder}`);
+      const data = await res.json();
+      
+      if (data.theme) {
+        setSelectedTheme(data.theme);
+      }
+      
+      if (data.optimized_cv_json) {
+        setEditedCvDataJSON(JSON.stringify(data.optimized_cv_json, null, 2));
+      }
+      
+      if (data.cover_letter_json) {
+        setLetterDataJSON(JSON.stringify(data.cover_letter_json, null, 2));
+        if (data.cover_letter_json.company_name) setLetterCompanyName(data.cover_letter_json.company_name);
+        if (data.cover_letter_json.company_address) setLetterCompanyAddress(data.cover_letter_json.company_address);
+        if (data.cover_letter_json.hiring_manager) setLetterHiringManager(data.cover_letter_json.hiring_manager);
+        if (data.cover_letter_json.subject) setLetterSubject(data.cover_letter_json.subject);
+      }
+      
+      // Switch active tab
+      setActiveTab(targetTab);
+      
+      // Generate PDFs to sync views
+      if (data.optimized_cv_json) {
+        await handleGeneratePdf(data.optimized_cv_json);
+      }
+      if (data.cover_letter_json) {
+        await handleGenerateLetterPdf(data.cover_letter_json);
+      }
+    } catch (err) {
+      console.error("Failed to load result:", err);
+      alert("Erreur lors du chargement du résultat.");
+    } finally {
+      setIsAnalyzing(false);
+      setAnalysisProgress('');
     }
   };
 
@@ -701,8 +961,41 @@ export default function Home() {
           </div>
         </div>
 
-        {/* UI Theme Selector */}
-        <div style={{ marginBottom: '0.5rem' }}>
+          {/* Job Boards Auth */}
+          <div style={{ marginBottom: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+            <div className="slabel" style={{ color: 'var(--cyan)' }}>/ Auth JobTeaser</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+              <input 
+                type="text" 
+                className="input-field" 
+                placeholder="URL Université (ex: https://univ-ubs.jobteaser.com)" 
+                value={jobteaserUrl} 
+                onChange={(e) => { setJobteaserUrl(e.target.value); localStorage.setItem('jobteaserUrl', e.target.value); }}
+                style={{ fontSize: '0.7rem', padding: '8px' }}
+              />
+              <input 
+                type="text" 
+                className="input-field" 
+                placeholder="Email Université" 
+                value={jobteaserEmail} 
+                onChange={(e) => { setJobteaserEmail(e.target.value); localStorage.setItem('jobteaserEmail', e.target.value); }}
+                style={{ fontSize: '0.7rem', padding: '8px' }}
+              />
+              <input 
+                type="password" 
+                className="input-field" 
+                placeholder="Mot de passe" 
+                value={jobteaserPassword} 
+                onChange={(e) => { setJobteaserPassword(e.target.value); localStorage.setItem('jobteaserPassword', e.target.value); }}
+                style={{ fontSize: '0.7rem', padding: '8px' }}
+              />
+              <p style={{ fontSize: '0.55rem', color: 'var(--text3)', margin: 0 }}>
+                Vos identifiants ne servent qu'à la connexion locale via Playwright.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '0.5rem' }}>
           <div className="slabel">/ Interface Theme</div>
           <button
             onClick={cycleUiTheme}
@@ -779,8 +1072,8 @@ export default function Home() {
 
           <div data-tour="api-provider">
             <div className="slabel">/ AI Provider</div>
-            <div style={{ display: 'flex', gap: '6px', marginBottom: '1rem' }}>
-              {(['groq', 'mistral', 'google'] as const).map(provider => (
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+              {(['groq', 'mistral', 'google', 'azure'] as const).map(provider => (
                 <button
                   key={provider}
                   onClick={() => setAiProvider(provider)}
@@ -794,10 +1087,50 @@ export default function Home() {
                     textTransform: 'uppercase'
                   }}
                 >
-                  {provider === 'groq' ? '⚡ Groq' : provider === 'mistral' ? '🌊 Mistral' : '🔷 Google'}
+                  {provider === 'groq' ? '⚡ Groq' : provider === 'mistral' ? '🌊 Mistral' : provider === 'google' ? '🔷 Google' : '☁️ Azure'}
                 </button>
               ))}
             </div>
+
+            {aiProvider === 'azure' && (
+              <div className="animate-in" style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '10px', 
+                marginBottom: '1rem',
+                padding: '12px',
+                background: 'rgba(212, 168, 83, 0.05)',
+                border: '1px solid var(--gold)',
+                borderRadius: '8px'
+              }}>
+                <div style={{ fontSize: '0.6rem', fontWeight: 800, color: 'var(--gold)', textTransform: 'uppercase', marginBottom: '4px' }}>Azure Configuration</div>
+                <div style={{ position: 'relative' }}>
+                  <Globe size={12} style={{ position: 'absolute', left: '10px', top: '10px', opacity: 0.5 }} />
+                  <input
+                    type="text"
+                    placeholder="Azure Endpoint URL"
+                    value={azureEndpoint}
+                    onChange={(e) => setAzureEndpoint(e.target.value)}
+                    className="input-field"
+                    style={{ paddingLeft: '30px', margin: 0, fontSize: '0.75rem' }}
+                  />
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <Zap size={12} style={{ position: 'absolute', left: '10px', top: '10px', opacity: 0.5 }} />
+                  <input
+                    type="text"
+                    placeholder="Deployment Name (ex: gpt-4o)"
+                    value={azureDeployment}
+                    onChange={(e) => setAzureDeployment(e.target.value)}
+                    className="input-field"
+                    style={{ paddingLeft: '30px', margin: 0, fontSize: '0.75rem' }}
+                  />
+                </div>
+                <div style={{ fontSize: '0.55rem', opacity: 0.6, fontStyle: 'italic' }}>
+                  Trouvez ces infos dans Azure AI Studio &gt; Déploiements.
+                </div>
+              </div>
+            )}
             {aiProvider === 'groq' && (
               <div style={{ fontSize: '0.6rem', color: 'var(--text3)', marginTop: '-0.5rem', marginBottom: '0.5rem' }}>
                 Get your free API key at <a href="https://console.groq.com" target="_blank" rel="noopener" style={{ color: 'var(--gold)' }}>console.groq.com</a>
@@ -816,11 +1149,21 @@ export default function Home() {
           </div>
 
           <div>
-            <div className="slabel">/ API Key ({aiProvider === 'groq' ? 'Groq' : aiProvider === 'mistral' ? 'Mistral AI' : 'Google AI'})</div>
+            <div className="slabel">/ API Key ({
+              aiProvider === 'groq' ? 'Groq' : 
+              aiProvider === 'mistral' ? 'Mistral AI' : 
+              aiProvider === 'google' ? 'Google AI' : 
+              'Azure OpenAI'
+            })</div>
             <input
               type="password"
               className="input-field"
-              placeholder={aiProvider === 'groq' ? 'gsk_••••••••••' : aiProvider === 'mistral' ? 'mistral_••••••••••' : 'AIza••••••••••'}
+              placeholder={
+                aiProvider === 'groq' ? 'gsk_••••••••••' : 
+                aiProvider === 'mistral' ? 'mistral_••••••••••' : 
+                aiProvider === 'google' ? 'AIza••••••••••' : 
+                'Clé d\'API Azure...'
+              }
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
             />
@@ -1051,7 +1394,10 @@ export default function Home() {
                   gap: '6px'
                 }}>
                   <span style={{ color: 'var(--gold)', fontWeight: 700, textTransform: 'uppercase' }}>
-                    {analysisResult._models_used.provider === 'groq' ? '⚡ Groq' : analysisResult._models_used.provider === 'mistral' ? '🌊 Mistral' : '🔷 Google'}
+                    {analysisResult._models_used.provider === 'groq' ? '⚡ Groq' 
+                      : analysisResult._models_used.provider === 'mistral' ? '🌊 Mistral' 
+                      : analysisResult._models_used.provider === 'azure' ? '☁️ Azure' 
+                      : '🔷 Google'}
                   </span>
                 </div>
                 <div style={{
@@ -1088,7 +1434,9 @@ export default function Home() {
               <button data-tour="edit-tab" className={`tab ${activeTab === 'edit' ? 'active' : ''}`} onClick={() => setActiveTab('edit')}>✏️ Content</button>
               <button data-tour="compare-tab" className={`tab ${activeTab === 'compare' ? 'active' : ''}`} onClick={() => setActiveTab('compare')}>📊 Compare & ATS</button>
               <button data-tour="pdf-tab" className={`tab ${activeTab === 'pdf' ? 'active' : ''}`} onClick={() => setActiveTab('pdf')}>🎨 CV PDF Export</button>
+              <button data-tour="letter-tab" className={`tab ${activeTab === 'letter' ? 'active' : ''}`} onClick={() => setActiveTab('letter')}>✉️ Lettre de Motivation</button>
               <button data-tour="jobs-tab" className={`tab ${activeTab === 'jobs' ? 'active' : ''}`} onClick={() => setActiveTab('jobs')}>💼 Jobs offer</button>
+              <button data-tour="hunt-tab" className={`tab ${activeTab === 'hunt' ? 'active' : ''}`} onClick={() => setActiveTab('hunt')} style={{ color: 'var(--gold)', fontWeight: 800 }}>⚡ Autonomous Hunter</button>
               <button data-tour="tips-tab" className={`tab ${activeTab === 'tips' ? 'active' : ''}`} onClick={() => setActiveTab('tips')}>💡 Pro Tips</button>
             </div>
 
@@ -1442,6 +1790,22 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            {/* TAB: AUTONOMOUS HUNTER (Persisted in DOM to keep state) */}
+            <div style={{ display: activeTab === 'hunt' ? 'block' : 'none' }}>
+              <AutonomousHunter 
+                cvText={cvText}
+                letterText={oldLetterText}
+                aiProvider={aiProvider}
+                apiKey={apiKey}
+                azureEndpoint={azureEndpoint}
+                azureDeployment={azureDeployment}
+                onEditResult={loadJobHunterResult}
+                jobteaserUrl={jobteaserUrl}
+                jobteaserEmail={jobteaserEmail}
+                jobteaserPassword={jobteaserPassword}
+              />
+            </div>
 
             {/* TAB: COMPARE & ATS */}
             {activeTab === 'compare' && (
@@ -2676,6 +3040,456 @@ export default function Home() {
               </div>
             )}
           </>
+        )}
+
+        {/* TAB: COVER LETTER */}
+        {activeTab === 'letter' && (
+          <div>
+            <div className="ins cyan" style={{ marginBottom: '1.5rem', background: 'rgba(212, 168, 83, 0.05)', border: '1px solid var(--gold)' }}>
+              <div className="ins-l" style={{ color: 'var(--gold)' }}>✉️ Lettre de Motivation Haute Couture</div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text1)' }}>
+                Associez la puissance du machine learning et la précision typographique de ReportLab. 
+                Importez une ancienne lettre ou laissez l'IA puiser dans votre CV pour rédiger des paragraphes percutants, formatés selon la charte graphique de votre thème actuel (<strong>{selectedTheme}</strong>).
+              </p>
+            </div>
+
+            <div className="autonomous-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '2rem', alignItems: 'start' }}>
+              
+              {/* PANNEAU DE CONFIGURATION GAUCHE */}
+              <div className="card animate-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                <div className="card-hd" style={{ margin: 0, borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                  ⚙️ Configuration IA & Cible
+                </div>
+
+                <div>
+                  <label className="slabel" style={{ display: 'block', marginBottom: '6px' }}>🎨 Thème de la Lettre de Motivation</label>
+                  <select
+                    className="input-field"
+                    value={selectedTheme}
+                    onChange={(e) => setSelectedTheme(e.target.value)}
+                    style={{ fontSize: '0.75rem', marginBottom: '8px' }}
+                  >
+                    <option value="Sober Classic">📄 Sobere sans couleur (Traditionnel)</option>
+                    <option value="Classic Dark">Classic Dark</option>
+                    <option value="Canva Minimal">Canva Minimal</option>
+                    <option value="Nordic Clean">Nordic Clean</option>
+                    <option value="Tech Grid">Tech Grid</option>
+                    <option value="Luxury Serif">Luxury Serif</option>
+                    <option value="Finance Pro">Finance Pro</option>
+                    <option value="Medical Clean">Medical Clean</option>
+                    <option value="BTP Industry">BTP Industry</option>
+                    <option value="Apprentice">Apprentice Starter</option>
+                    <option value="Startup SaaS">Startup SaaS</option>
+                    <option value="Academic Legal">Academic Legal</option>
+                    <option value="Creative Ag.">Creative Agency</option>
+                    <option value="Logistics">Logistics</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="slabel" style={{ display: 'block', marginBottom: '6px' }}>/ Importer une Ancienne Lettre (PDF)</label>
+                  <div className="file-drop" onClick={() => letterFileInputRef.current?.click()} style={{ marginBottom: '12px' }}>
+                    <UploadCloud className="icon" />
+                    <p>{letterFile ? letterFile.name : "Cliquez pour sélectionner un PDF de Lettre de Motivation"}</p>
+                    <input type="file" ref={letterFileInputRef} hidden accept="application/pdf" onChange={handleLetterFileChange} />
+                  </div>
+                  <label className="slabel" style={{ display: 'block', marginBottom: '6px' }}>/ Contenu de l'Ancienne Lettre (Optionnel - pour guider l'IA)</label>
+                  <textarea
+                    className="input-field"
+                    style={{ height: '140px', fontSize: '0.75rem', fontFamily: 'inherit' }}
+                    placeholder="Le texte extrait apparaîtra ici ou vous pouvez directement le coller..."
+                    value={oldLetterText}
+                    onChange={(e) => setOldLetterText(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="slabel" style={{ display: 'block', marginBottom: '6px' }}>/ Description du Poste Cible (Requis pour l'adaptation)</label>
+                  <textarea
+                    className="input-field"
+                    style={{ height: '140px', fontSize: '0.75rem', fontFamily: 'inherit' }}
+                    placeholder="Collez ici l'offre d'emploi ou la description du poste pour y adapter parfaitement la lettre..."
+                    value={jobDesc}
+                    onChange={(e) => setJobDesc(e.target.value)}
+                  />
+                </div>
+
+                <details style={{ marginTop: '0.5rem', cursor: 'pointer' }}>
+                  <summary style={{ fontSize: '0.75rem', color: 'var(--gold)', fontWeight: 600, userSelect: 'none' }}>
+                    ⚙️ Paramètres avancés du destinataire (Optionnel)
+                  </summary>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', marginTop: '0.8rem', padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div>
+                        <label className="slabel" style={{ display: 'block', marginBottom: '4px' }}>Entreprise Cible</label>
+                        <input
+                          type="text"
+                          className="input-field"
+                          placeholder="Extrait par l'IA si vide"
+                          value={letterCompanyName}
+                          onChange={(e) => setLetterCompanyName(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="slabel" style={{ display: 'block', marginBottom: '4px' }}>Destinataire / Manager</label>
+                        <input
+                          type="text"
+                          className="input-field"
+                          placeholder="Extrait par l'IA si vide"
+                          value={letterHiringManager}
+                          onChange={(e) => setLetterHiringManager(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="slabel" style={{ display: 'block', marginBottom: '4px' }}>Adresse Entreprise</label>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="Extrait par l'IA si vide"
+                        value={letterCompanyAddress}
+                        onChange={(e) => setLetterCompanyAddress(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="slabel" style={{ display: 'block', marginBottom: '4px' }}>Objet du Message</label>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="Extrait par l'IA si vide"
+                        value={letterSubject}
+                        onChange={(e) => setLetterSubject(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </details>
+
+                <button
+                  className="btn-primary"
+                  onClick={handleTailorLetter}
+                  disabled={isGeneratingLetter}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                >
+                  <Sparkles size={16} />
+                  {isGeneratingLetter ? (letterProgress || "GÉNÉRATION EN COURS...") : "🪄 CIBLER & OPTIMISER LA LETTRE"}
+                </button>
+              </div>
+
+              {/* COLONNE PREVIEW DROITE */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                {!letterPdfUrl ? (
+                  <div className="card" style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
+                    <FileText size={48} opacity={0.3} style={{ margin: '0 auto 1rem', color: 'var(--gold)' }} />
+                    <h3 style={{ marginBottom: '0.8rem' }}>Aucune Lettre Générée</h3>
+                    <p style={{ color: 'var(--text2)', fontSize: '0.8rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
+                      Renseignez l'entreprise cible et lancez l'optimiseur. L'IA écrira une lettre de motivation sur-mesure combinant votre CV et les prérequis de l'offre d'emploi.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* DUAL EDITOR: FORM & JSON */}
+                    <div className="card animate-in" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                        <div className="card-hd" style={{ margin: 0, fontSize: '0.85rem' }}>
+                          ✏️ Éditeur de la Lettre
+                        </div>
+                        <div style={{ display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.03)', padding: '2px', borderRadius: '4px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setLetterEditorTab('visual')}
+                            style={{ padding: '2px 8px', fontSize: '0.65rem', borderRadius: '3px', background: letterEditorTab === 'visual' ? 'var(--gold)' : 'transparent', color: letterEditorTab === 'visual' ? '#000' : 'var(--text1)', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            Visuel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setLetterEditorTab('json')}
+                            style={{ padding: '2px 8px', fontSize: '0.65rem', borderRadius: '3px', background: letterEditorTab === 'json' ? 'var(--gold)' : 'transparent', color: letterEditorTab === 'json' ? '#000' : 'var(--text1)', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            JSON
+                          </button>
+                        </div>
+                      </div>
+
+                      {letterEditorTab === 'visual' ? (
+                        <>
+                          {/* HEADER FIELDS FORM */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div>
+                              <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Nom du Candidat</label>
+                              <input
+                                type="text"
+                                className="input-field"
+                                style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+                                value={(() => {
+                                  try { return JSON.parse(letterDataJSON).name || ''; } catch { return ''; }
+                                })()}
+                                onChange={(e) => {
+                                  try {
+                                    const parsed = JSON.parse(letterDataJSON);
+                                    parsed.name = e.target.value;
+                                    setLetterDataJSON(JSON.stringify(parsed, null, 2));
+                                  } catch {}
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Titre du Poste</label>
+                              <input
+                                type="text"
+                                className="input-field"
+                                style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+                                value={(() => {
+                                  try { return JSON.parse(letterDataJSON).title || ''; } catch { return ''; }
+                                })()}
+                                onChange={(e) => {
+                                  try {
+                                    const parsed = JSON.parse(letterDataJSON);
+                                    parsed.title = e.target.value;
+                                    setLetterDataJSON(JSON.stringify(parsed, null, 2));
+                                  } catch {}
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div>
+                              <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Adresse Email</label>
+                              <input
+                                type="text"
+                                className="input-field"
+                                style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+                                value={(() => {
+                                  try { return JSON.parse(letterDataJSON).email || ''; } catch { return ''; }
+                                })()}
+                                onChange={(e) => {
+                                  try {
+                                    const parsed = JSON.parse(letterDataJSON);
+                                    parsed.email = e.target.value;
+                                    setLetterDataJSON(JSON.stringify(parsed, null, 2));
+                                  } catch {}
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Téléphone</label>
+                              <input
+                                type="text"
+                                className="input-field"
+                                style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+                                value={(() => {
+                                  try { return JSON.parse(letterDataJSON).phone || ''; } catch { return ''; }
+                                })()}
+                                onChange={(e) => {
+                                  try {
+                                    const parsed = JSON.parse(letterDataJSON);
+                                    parsed.phone = e.target.value;
+                                    setLetterDataJSON(JSON.stringify(parsed, null, 2));
+                                  } catch {}
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div>
+                              <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Ville / Localisation</label>
+                              <input
+                                type="text"
+                                className="input-field"
+                                style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+                                value={(() => {
+                                  try { return JSON.parse(letterDataJSON).location || ''; } catch { return ''; }
+                                })()}
+                                onChange={(e) => {
+                                  try {
+                                    const parsed = JSON.parse(letterDataJSON);
+                                    parsed.location = e.target.value;
+                                    setLetterDataJSON(JSON.stringify(parsed, null, 2));
+                                  } catch {}
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Date de la Lettre</label>
+                              <input
+                                type="text"
+                                className="input-field"
+                                style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+                                value={(() => {
+                                  try { return JSON.parse(letterDataJSON).date || ''; } catch { return ''; }
+                                })()}
+                                onChange={(e) => {
+                                  try {
+                                    const parsed = JSON.parse(letterDataJSON);
+                                    parsed.date = e.target.value;
+                                    setLetterDataJSON(JSON.stringify(parsed, null, 2));
+                                  } catch {}
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div>
+                              <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Entreprise</label>
+                              <input
+                                type="text"
+                                className="input-field"
+                                style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+                                value={letterCompanyName}
+                                onChange={(e) => {
+                                  setLetterCompanyName(e.target.value);
+                                  try {
+                                    const parsed = JSON.parse(letterDataJSON);
+                                    parsed.company_name = e.target.value;
+                                    setLetterDataJSON(JSON.stringify(parsed, null, 2));
+                                  } catch {}
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Destinataire</label>
+                              <input
+                                type="text"
+                                className="input-field"
+                                style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+                                value={letterHiringManager}
+                                onChange={(e) => {
+                                  setLetterHiringManager(e.target.value);
+                                  try {
+                                    const parsed = JSON.parse(letterDataJSON);
+                                    parsed.hiring_manager = e.target.value;
+                                    setLetterDataJSON(JSON.stringify(parsed, null, 2));
+                                  } catch {}
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Adresse de l'Entreprise</label>
+                            <input
+                              type="text"
+                              className="input-field"
+                              style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+                              value={letterCompanyAddress}
+                              onChange={(e) => {
+                                setLetterCompanyAddress(e.target.value);
+                                try {
+                                  const parsed = JSON.parse(letterDataJSON);
+                                  parsed.company_address = e.target.value;
+                                  setLetterDataJSON(JSON.stringify(parsed, null, 2));
+                                } catch {}
+                              }}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Objet de la Lettre</label>
+                            <input
+                              type="text"
+                              className="input-field"
+                              style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+                              value={letterSubject}
+                              onChange={(e) => {
+                                setLetterSubject(e.target.value);
+                                try {
+                                  const parsed = JSON.parse(letterDataJSON);
+                                  parsed.subject = e.target.value;
+                                  setLetterDataJSON(JSON.stringify(parsed, null, 2));
+                                } catch {}
+                              }}
+                            />
+                          </div>
+
+                          {/* PARAGRAPHS */}
+                          {(() => {
+                            let parsedData: { body_paragraphs: string[] } = { body_paragraphs: [] };
+                            try {
+                              parsedData = JSON.parse(letterDataJSON);
+                            } catch {}
+                            return (parsedData.body_paragraphs || []).map((p: string, idx: number) => (
+                              <div key={idx}>
+                                <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Paragraphe {idx + 1}</label>
+                                <textarea
+                                  className="input-field"
+                                  style={{ height: '80px', fontSize: '0.75rem', fontFamily: 'inherit', margin: 0 }}
+                                  value={p}
+                                  onChange={(e) => {
+                                    const newParas = [...parsedData.body_paragraphs];
+                                    newParas[idx] = e.target.value as never;
+                                    setLetterDataJSON(JSON.stringify({ ...parsedData, body_paragraphs: newParas }, null, 2));
+                                  }}
+                                />
+                              </div>
+                            ));
+                          })()}
+                        </>
+                      ) : (
+                        /* RAW JSON CODE EDITOR */
+                        <div>
+                          <label className="slabel" style={{ display: 'block', marginBottom: '4px', fontSize: '0.65rem' }}>Modifier le code de la Lettre de motivation (JSON)</label>
+                          <textarea
+                            className="input-field"
+                            style={{ height: '480px', fontSize: '0.75rem', fontFamily: 'monospace', whiteSpace: 'pre', overflowX: 'auto', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border2)', color: '#a5f3fc' }}
+                            value={letterDataJSON}
+                            onChange={(e) => {
+                              setLetterDataJSON(e.target.value);
+                              try {
+                                const parsed = JSON.parse(e.target.value);
+                                if (parsed.company_name) setLetterCompanyName(parsed.company_name);
+                                if (parsed.company_address) setLetterCompanyAddress(parsed.company_address);
+                                if (parsed.hiring_manager) setLetterHiringManager(parsed.hiring_manager);
+                                if (parsed.subject) setLetterSubject(parsed.subject);
+                              } catch {}
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="editor-bar">
+                      <div className="ed-dot" style={{ background: '#e05252' }}></div>
+                      <div className="ed-dot" style={{ background: '#e8a030' }}></div>
+                      <div className="ed-dot" style={{ background: '#52c97a' }}></div>
+                      <span className="ed-title">Visualisation de la Lettre — Thème {selectedTheme}</span>
+                    </div>
+
+                    <div className="cv-preview animate-in" style={{ padding: 0, background: 'var(--surface)', overflow: 'hidden' }}>
+                      <iframe
+                        id="letter-iframe"
+                        key={letterPdfUrl}
+                        src={`${letterPdfUrl}#toolbar=0&view=FitH`}
+                        className="pdf-iframe"
+                        style={{ border: 'none', display: 'block', width: '100%', height: '640px' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '15px' }}>
+                      <button
+                        className="btn-primary animate-in"
+                        onClick={() => {
+                          const link = document.createElement('a');
+                          link.href = letterPdfUrl;
+                          link.download = letterPdfData?.filename || 'Lettre_de_motivation.pdf';
+                          link.click();
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                      >
+                        <Download size={14} />
+                        TÉLÉCHARGER LA LETTRE
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+            </div>
+          </div>
         )}
 
         {/* PERSISTENT FOOTER - PROFESSIONAL PRIVACY SHIELD */}
