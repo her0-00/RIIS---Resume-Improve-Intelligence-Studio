@@ -1,0 +1,49 @@
+name: 'Close Stale Issues and PRs'
+
+on:
+  schedule:
+    - cron: '30 1 * * *' # Runs daily at 01:30 UTC
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+
+permissions:
+  contents: write
+  issues: write
+  pull_requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stale Triage Bot
+        uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          
+          # Configuration of days
+          days-before-stale: 60
+          days-before-close: 7
+          
+          # Labels to apply
+          stale-issue-label: 'stale'
+          stale-pr-label: 'stale'
+          
+          # Beautiful & supportive messages
+          stale-issue-message: |
+            This issue has been automatically marked as stale because it has not had any recent activity for 60 days. 💤
+
+            It will be closed in 7 days if no further activity occurs. If this is still a problem or if you have new information, please leave a comment to let us know. We appreciate your contributions to keeping IRIS premium and bug-free! ⭐
+            
+          stale-pr-message: |
+            This pull request has been automatically marked as stale because it has not had any recent activity for 60 days. 💤
+
+            It will be closed in 7 days if no further activity occurs. If this work is still relevant and you'd like to see it merged, please leave a comment or push an update. Thank you for your amazing effort! 🎨
+            
+          close-issue-message: |
+            This issue has been closed automatically due to inactivity. 🔒
+
+            If this is still a problem or if you have new information, please feel free to reopen this issue or open a new one with updated details. Thank you again!
+            
+          close-pr-message: |
+            This pull request has been closed automatically due to inactivity. 🔒
+
+            Thank you again for your valuable time and contribution to IRIS! If you decide to resume work on this, feel free to reopen the PR or create a new branch.

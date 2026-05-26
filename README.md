@@ -1,12 +1,29 @@
+<div align="center">
+
 # ⬡ IRIS — Improve Resume Intelligence Studio
 
 > **Stop sending your CV into the "Resume Black Hole".**
 
-75% of applications are rejected by automated bots before a human ever sees them. **IRIS** is a high-performance AI-powered utility designed to audit, rewrite, and export your CV so it bypasses Applicant Tracking Systems (ATS) and lands directly on a recruiter's desk.
+[![GitHub stars](https://img.shields.io/github/stars/her0-00/IRIS---Improve-Resume-Intelligence-Studio?style=for-the-badge&color=FFE066&logo=github&labelColor=2B2D31)](https://github.com/her0-00/IRIS---Improve-Resume-Intelligence-Studio/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/her0-00/IRIS---Improve-Resume-Intelligence-Studio?style=for-the-badge&color=4DABF7&logo=git&labelColor=2B2D31)](https://github.com/her0-00/IRIS---Improve-Resume-Intelligence-Studio/network)
+[![License: MIT](https://img.shields.io/badge/License-MIT-40C057?style=for-the-badge&logo=open-source-initiative&labelColor=2B2D31)](LICENSE)
+[![Docker Ready](https://img.shields.io/badge/Docker-Ready-228BE6?style=for-the-badge&logo=docker&labelColor=2B2D31)](Dockerfile)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/her0-00/IRIS---Improve-Resume-Intelligence-Studio/ci.yml?branch=main&style=for-the-badge&logo=github-actions&labelColor=2B2D31)](https://github.com/her0-00/IRIS---Improve-Resume-Intelligence-Studio/actions)
 
-🌐 **Live Demo**: [https://iris.onrender.com/](https://iris.onrender.com/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white&labelColor=2B2D31)](https://www.python.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-15%2F16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white&labelColor=2B2D31)](https://nextjs.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-38B2AC?style=for-the-badge&logo=tailwindcss&logoColor=white&labelColor=2B2D31)](https://tailwindcss.com/)
+
+75% of applications are rejected by automated bots before a human ever sees them.  
+**IRIS** is a high-performance AI-powered utility designed to audit, rewrite, and export your CV so it bypasses Applicant Tracking Systems (ATS) and lands directly on a recruiter's desk.
+
+🌐 **[Live Demo](https://iris.onrender.com/)** · 💬 **[Support Guide](SUPPORT.md)** · ⚙️ **[How to Contribute](CONTRIBUTING.md)** · 🛡️ **[Security Policy](SECURITY.md)** · 🐛 **[Report Bug](.github/ISSUE_TEMPLATE/bug_report.md)**
+
+<br/>
 
 ![IRIS Home Interface](home.png)
+
+</div>
 
 ---
 
@@ -430,52 +447,59 @@ IRIS is fully responsive across all screen sizes:
 
 ---
 
-## 🤝 Contributing
+## 🤝 Contributing & Community
+
+We warmly welcome contributions to IRIS! Whether you are fixing a bug, suggesting a feature, or writing documentation, your help is highly appreciated.
+
+To get started, please read our **[Contribution Guidelines](CONTRIBUTING.md)** and our **[Code of Conduct](CODE_OF_CONDUCT.md)** to ensure a welcoming environment for all.
+
+### ⚡ Quick Start for Contributors
 
 ```bash
 # 1. Fork and clone
 git clone https://github.com/her0-00/IRIS---Improve-Resume-Intelligence-Studio.git
 cd IRIS---Improve-Resume-Intelligence-Studio
 
-# 2. Install dependencies
+# 2. Set up virtual environment and install backend dependencies
+python -m venv venv
+# Windows: .\venv\Scripts\activate | macOS/Linux: source venv/bin/activate
 pip install -r requirements.txt
 python -m playwright install chromium
-cd web && npm install
 
-# 3. Start dev server
+# 3. Set up and run Next.js frontend
+cd web
+npm install
 npm run dev
 ```
 
-To add a new scraping source to the Autonomous Hunter:
-1. Add a scraping function in `backend/job_hunter_agent.py`
-2. Register it in the `search_mode` logic
-3. Test: `python backend/job_hunter_agent.py --query "developer" --location "France" --provider groq --key YOUR_KEY`
-4. Update the `searchMode` selector in `web/src/app/AutonomousHunter.tsx`
+For more details on expanding the backend or contributing to the scraping agents, check out **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ---
 
-## 📚 Documentation
+## 📚 Documentation & Community Health
 
-| File | Purpose |
+| File / Resource | Description |
 |------|---------|
-| `README.md` | This file — project overview |
-| `CHANGELOG_v4.md` | Detailed version history |
+| ⚙️ **[CONTRIBUTING.md](CONTRIBUTING.md)** | Guide to local setup, branching, commits, and PR flows |
+| 💬 **[SUPPORT.md](SUPPORT.md)** | Support Center, community help channels, and SLAs |
+| 🛡️ **[SECURITY.md](SECURITY.md)** | Security Policy and instructions on reporting vulnerabilities |
+| 🤝 **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** | Standards for building a healthy, inclusive community |
+| `CHANGELOG_v4.md` | Detailed version and release history |
 | `DEPLOY_RENDER.md` | Full Render.com deployment guide |
-| `WORKFLOW_IMPLEMENTATION.md` | Technical workflow details |
-| `TESTING_CHECKLIST.md` | Test scenarios |
-| `SECURITY_AUDIT.md` | Security audit report |
-| `PHOTO_FEATURE.md` | Photo feature documentation |
-| `ats_config.json` | ATS scoring weights and configuration |
+| `WORKFLOW_IMPLEMENTATION.md` | Technical workflow details of the multi-agent pipeline |
+| `TESTING_CHECKLIST.md` | Verification and test scenarios checklist |
+| `SECURITY_AUDIT.md` | In-depth security analysis report |
+| `PHOTO_FEATURE.md` | Face-detection and picture crop features details |
 
 ---
 
 ## 📄 License
 
-MIT — See [LICENSE](LICENSE) for details.
+Distributed under the MIT License. See [LICENSE](LICENSE) for more details.
 
 ---
 
 <div align="center">
-  <strong>⬡ IRIS v4.2 — Production Ready 🚀</strong><br/>
-  Built with ❤️ · Next.js 16 · Python 3.11 · ReportLab · Groq · Mistral · Gemini · Azure OpenAI
+  <strong>⬡ IRIS — Production Ready 🚀</strong><br/>
+  Built with ❤️ · Next.js 15/16 · Python 3.11 · ReportLab · Groq · Mistral · Gemini · Azure OpenAI
 </div>

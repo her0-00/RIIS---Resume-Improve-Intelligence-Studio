@@ -20,6 +20,7 @@ const THEME_CATEGORIES = [
     label: '🏛️ Classic',
     themes: [
       { name: 'Classic Dark', color: '#0F1117', accent: '#C8A96E', desc: 'Dark sidebar · Gold' },
+      { name: 'Sober Classic', color: '#FFFFFF', accent: '#000000', desc: 'Pure B&W · Serif' },
       { name: 'Luxury Serif', color: '#FFFEF9', accent: '#8B6914', desc: 'Serif · Warm Gold' },
       { name: 'Executive C', color: '#FFFFFF', accent: '#334155', desc: 'Silver · Slate' },
       { name: 'Apprentice', color: '#FCD34D', accent: '#1E3A8A', desc: 'Yellow · Royal Blue' },
@@ -104,6 +105,7 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [cvText, setCvText] = useState('');
   const [selectedTheme, setSelectedTheme] = useState('Classic Dark');
+  const [selectedLetterTheme, setSelectedLetterTheme] = useState('Classic Dark');
   const [boostMode, setBoostMode] = useState(false);
   const [lang, setLang] = useState<'fr' | 'en'>('fr');
   const [uiTheme, setUiTheme] = useState<'dark' | 'sota-luxury' | 'violet-electric' | 'emerald-tech' | 'light-premium' | 'obsidian-cyan'>('violet-electric');
@@ -288,7 +290,10 @@ export default function Home() {
           const data = await res.json();
           if (data.optimized_cv_json) {
             setEditedCvDataJSON(JSON.stringify(data.optimized_cv_json, null, 2));
-            if (data.theme) setSelectedTheme(data.theme);
+            if (data.theme) {
+              setSelectedTheme(data.theme);
+              setSelectedLetterTheme(data.theme);
+            }
             
             if (data.cover_letter_json) {
               setLetterCompanyName(data.cover_letter_json.company_name || '');
@@ -298,7 +303,7 @@ export default function Home() {
               setLetterDataJSON(JSON.stringify(data.cover_letter_json, null, 2));
               
               // Automatically render loaded cover letter PDF
-              handleGenerateLetterPdf(data.cover_letter_json);
+              handleGenerateLetterPdf(data.cover_letter_json, data.theme || 'Classic Dark');
             }
             
             setActiveTab('edit');
@@ -577,7 +582,7 @@ export default function Home() {
     }
   };
 
-  const handleGenerateLetterPdf = async (letterDataOverride?: any) => {
+  const handleGenerateLetterPdf = async (letterDataOverride?: any, themeOverride?: string) => {
     let letterToUse;
     if (letterDataOverride) {
       letterToUse = letterDataOverride;
@@ -599,9 +604,22 @@ export default function Home() {
           company_address: letterCompanyAddress || letterToUse.company_address,
           hiring_manager: letterHiringManager || letterToUse.hiring_manager,
           subject: letterSubject || letterToUse.subject,
-          lang
+          lang,
+          custom_style: {
+            accent_color: customAccent || undefined,
+            text_color: customText || undefined,
+            heading_color: customHeading || undefined,
+            subheading_color: customSubheading || undefined,
+            name_color: customNameColor || undefined,
+            sidebar_bg: customSidebarBg || undefined,
+            main_bg: customMainBg || undefined,
+            header_bg: customHeaderBg || undefined,
+            photo_border_color: customPhotoBorder || undefined,
+            font_scale: fontScale,
+            font_family: fontFamily
+          }
         },
-        theme: selectedTheme,
+        theme: themeOverride || selectedLetterTheme,
         is_cover_letter: true
       };
 
@@ -686,7 +704,10 @@ export default function Home() {
       handleGenerateLetterPdf();
     }, 1200);
     return () => clearTimeout(timer);
-  }, [letterCompanyName, letterCompanyAddress, letterHiringManager, letterSubject, letterDataJSON, selectedTheme]);
+  }, [
+    letterCompanyName, letterCompanyAddress, letterHiringManager, letterSubject, letterDataJSON, selectedLetterTheme,
+    customAccent, customText, customHeading, customSubheading, customNameColor, customSidebarBg, customMainBg, customHeaderBg, customPhotoBorder, fontScale, fontFamily
+  ]);
 
   useEffect(() => {
     return () => {
@@ -810,6 +831,7 @@ export default function Home() {
       
       if (data.theme) {
         setSelectedTheme(data.theme);
+        setSelectedLetterTheme(data.theme);
       }
       
       if (data.optimized_cv_json) {
@@ -832,7 +854,7 @@ export default function Home() {
         await handleGeneratePdf(data.optimized_cv_json);
       }
       if (data.cover_letter_json) {
-        await handleGenerateLetterPdf(data.cover_letter_json);
+        await handleGenerateLetterPdf(data.cover_letter_json, data.theme || 'Classic Dark');
       }
     } catch (err) {
       console.error("Failed to load result:", err);
@@ -3049,7 +3071,7 @@ export default function Home() {
               <div className="ins-l" style={{ color: 'var(--gold)' }}>✉️ Lettre de Motivation Haute Couture</div>
               <p style={{ fontSize: '0.8rem', color: 'var(--text1)' }}>
                 Associez la puissance du machine learning et la précision typographique de ReportLab. 
-                Importez une ancienne lettre ou laissez l'IA puiser dans votre CV pour rédiger des paragraphes percutants, formatés selon la charte graphique de votre thème actuel (<strong>{selectedTheme}</strong>).
+                Importez une ancienne lettre ou laissez l'IA puiser dans votre CV pour rédiger des paragraphes percutants, formatés selon la charte graphique de votre thème actuel (<strong>{selectedLetterTheme}</strong>).
               </p>
             </div>
 
@@ -3065,24 +3087,19 @@ export default function Home() {
                   <label className="slabel" style={{ display: 'block', marginBottom: '6px' }}>🎨 Thème de la Lettre de Motivation</label>
                   <select
                     className="input-field"
-                    value={selectedTheme}
-                    onChange={(e) => setSelectedTheme(e.target.value)}
+                    value={selectedLetterTheme}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedLetterTheme(val);
+                      handleGenerateLetterPdf(null, val);
+                    }}
                     style={{ fontSize: '0.75rem', marginBottom: '8px' }}
                   >
-                    <option value="Sober Classic">📄 Sobere sans couleur (Traditionnel)</option>
-                    <option value="Classic Dark">Classic Dark</option>
-                    <option value="Canva Minimal">Canva Minimal</option>
-                    <option value="Nordic Clean">Nordic Clean</option>
-                    <option value="Tech Grid">Tech Grid</option>
-                    <option value="Luxury Serif">Luxury Serif</option>
-                    <option value="Finance Pro">Finance Pro</option>
-                    <option value="Medical Clean">Medical Clean</option>
-                    <option value="BTP Industry">BTP Industry</option>
-                    <option value="Apprentice">Apprentice Starter</option>
-                    <option value="Startup SaaS">Startup SaaS</option>
-                    <option value="Academic Legal">Academic Legal</option>
-                    <option value="Creative Ag.">Creative Agency</option>
-                    <option value="Logistics">Logistics</option>
+                    {ALL_THEMES.map(theme => (
+                      <option key={theme.name} value={theme.name}>
+                        {theme.name === "Sober Classic" ? "📄 Sobre sans couleur (Traditionnel)" : theme.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -3456,7 +3473,7 @@ export default function Home() {
                       <div className="ed-dot" style={{ background: '#e05252' }}></div>
                       <div className="ed-dot" style={{ background: '#e8a030' }}></div>
                       <div className="ed-dot" style={{ background: '#52c97a' }}></div>
-                      <span className="ed-title">Visualisation de la Lettre — Thème {selectedTheme}</span>
+                      <span className="ed-title">Visualisation de la Lettre — Thème {selectedLetterTheme}</span>
                     </div>
 
                     <div className="cv-preview animate-in" style={{ padding: 0, background: 'var(--surface)', overflow: 'hidden' }}>

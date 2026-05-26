@@ -269,23 +269,30 @@ def _apply_custom_style(cls, cv_data):
     # Filter out None and empty string values
     style = {k: v for k, v in style.items() if v}
 
-    if not style:
-        return cls, 1.0
-
-    log.info(f"[CUSTOM_STYLE] Applying: {style}")
-
     ns = types.SimpleNamespace()
     for attr in dir(cls):
         if attr.startswith('_'): continue
         setattr(ns, attr, getattr(cls, attr))
 
+    # Ensure all required attributes are present, falling back to _ClassicDark
+    for attr in dir(_ClassicDark):
+        if attr.startswith('_') or attr in ['generate', 'render']: continue
+        if not hasattr(ns, attr):
+            setattr(ns, attr, getattr(_ClassicDark, attr))
+
+    setattr(ns, "LANG", cv_data.get("lang", "fr"))
+
+    if not style:
+        setattr(ns, "FONT_OVERRIDE", getattr(cls, "FONT_OVERRIDE", None))
+        return ns, 1.0
+
+    log.info(f"[CUSTOM_STYLE] Applying: {style}")
+
     # 1b. Font Global Override
     if style.get("font_family"):
         setattr(ns, "FONT_OVERRIDE", style["font_family"])
     else:
-        setattr(ns, "FONT_OVERRIDE", None)
-
-    setattr(ns, "LANG", cv_data.get("lang", "fr"))
+        setattr(ns, "FONT_OVERRIDE", getattr(cls, "FONT_OVERRIDE", None))
 
     # 1. Backgrounds
     if style.get("main_bg"):
@@ -1946,7 +1953,7 @@ class _SotaLuxury(_CanvaMinimal):
     DIVIDER     = HexColor("#F2F2F2")
 
 
-class _SoberClassic:
+class _SoberClassic(_AcademicLegal):
     BG            = HexColor("#FFFFFF")
     ACCENT        = HexColor("#000000")
     ACCENT2       = HexColor("#000000")
@@ -1960,6 +1967,9 @@ class _SoberClassic:
     WHITE         = HexColor("#000000")
     SOBER         = True
     FONT_OVERRIDE = "Times-Roman"
+    TAG_BG        = HexColor("#FAFAFA")
+    TAG_BORDER    = HexColor("#D4D4D4")
+    HEADER_BG     = HexColor("#FFFFFF")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -2008,7 +2018,9 @@ def generate_cover_letter_pdf(letter_data: dict, theme: str = "Classic Dark") ->
     
     FF = getattr(C, 'FONT_OVERRIDE', None)
     is_sober = getattr(C, 'SOBER', False)
-    c.setTitle(letter_data.get("name", "") + " — Lettre de motivation")
+    name = letter_data.get("name", "")
+    title = letter_data.get("title", "")
+    c.setTitle(name + " — Lettre de motivation")
     add_ats_metadata(c, letter_data)
 
     if is_sober:
@@ -2193,14 +2205,7 @@ def generate_cover_letter_pdf(letter_data: dict, theme: str = "Classic Dark") ->
     c.setFillColor(C.ACCENT)
     c.drawString(MX, cy, title)
 
-    # Footer
-    if not is_sober:
-        _draw_rect(c, 0, 0, W, 30, fill=C.SIDEBAR_BG2)
-    c.setFont(_f("Poppins", FF), 7)
-    c.setFillColor(is_sober and HexColor("#777777") or C.SIDEBAR_MUTED)
-    
-    footer_text = "  ·  ".join([it[0] for it in contact_items])
-    c.drawCentredString(W / 2, 10, footer_text)
+
 
     c.save()
     return buf.getvalue()
