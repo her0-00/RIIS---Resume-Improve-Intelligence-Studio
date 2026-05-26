@@ -1,0 +1,7 @@
+{
+    "url_racine": "https://careers.thalesgroup.com/fr/fr/search-results",
+    "selectors": {
+        "job_card": "button.btn.primary-button",
+        "apply_button": "a[href*=\"https://careers.thalesgroup.com/fr/fr/job/R0314041/Offset-and-Industrial-Participation-Manager\"]"
+    }
+}

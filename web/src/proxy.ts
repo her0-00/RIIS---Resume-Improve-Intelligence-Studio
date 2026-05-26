@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   // Force no-cache headers for all API routes
   if (request.nextUrl.pathname.startsWith('/api/')) {
     const response = NextResponse.next();
@@ -10,7 +10,7 @@ export function middleware(request: NextRequest) {
     response.headers.set('Expires', '0');
     return response;
   }
-  
+
   return NextResponse.next();
 }
 

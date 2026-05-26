@@ -1,0 +1,50 @@
+name: Welcome First Interaction
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+  pull_requests: write
+
+jobs:
+  welcome:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Welcome New Contributor
+        uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: |
+            ## 🎉 Welcome to IRIS, new builder! 🚀
+
+            Thank you so much for opening your very first issue! We are absolutely thrilled to have you join the **Improve Resume Intelligence Studio (IRIS)** community.
+
+            Our maintainers and community builders are dedicated to keeping IRIS the ultimate premium tool for resumes and cover letters. We will look into your issue shortly!
+
+            ### 🔍 Next Steps:
+            * **Verify**: Please check our [SUPPORT.md](https://github.com/her0-00/IRIS---Improve-Resume-Intelligence-Studio/blob/main/SUPPORT.md) guide and search existing issues to see if a similar report already exists.
+            * **Provide Details**: If you are reporting a bug, sharing screenshots, error logs, or a step-by-step reproduction guide is incredibly helpful for us to diagnose and resolve it quickly!
+
+            ### ⭐ Support Us:
+            If you believe in this project and want to help it reach more developers worldwide, please take a second to give IRIS a **Star (⭐)**! It helps us grow and keep building premium tools.
+
+            Happy compiling! 🎨
+          pr-message: |
+            ## 🚀 A brand new contributor has arrived! Thank you! 🎉
+
+            Wow! Thank you so much for submitting your very first Pull Request to **Improve Resume Intelligence Studio (IRIS)**! Contributing code, themes, or documentation is the greatest way to keep our resume generator premium, robust, and creative.
+
+            Our maintainers will review your contribution shortly. Welcome to the IRIS team! 🎨
+
+            ### 📝 Checklist for your PR:
+            1. **Guidelines**: Please double-check that you followed our code style and commit standards in [CONTRIBUTING.md](https://github.com/her0-00/IRIS---Improve-Resume-Intelligence-Studio/blob/main/CONTRIBUTING.md).
+            2. **Build**: Ensure that your local build passes successfully before requesting a review.
+            3. **Description**: Describe your changes in detail in the pull request description.
+
+            ### ⭐ Support Us:
+            If you haven't already, please consider leaving a **Star (⭐)** on this repository to help our community thrive!

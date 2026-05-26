@@ -5,7 +5,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const dynamic = 'force-dynamic';
 
-type AIProvider = 'groq' | 'mistral' | 'google';
+type AIProvider = 'groq' | 'mistral' | 'google' | 'azure';
 
 function extractJson(text: string): any {
   const start = text.indexOf('{');
@@ -34,7 +34,7 @@ function extractJson(text: string): any {
 
 export async function POST(req: Request) {
   try {
-    const { company_name, api_key, ai_provider } = await req.json();
+    const { company_name, api_key, ai_provider, azure_endpoint, azure_deployment } = await req.json();
     const provider: AIProvider = ai_provider || 'groq';
 
     const cleanName = (typeof company_name === 'string' ? company_name : '').trim().slice(0, 50);
@@ -44,9 +44,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing company name' }, { status: 400 });
     }
 
-    const apiKeyToUse = cleanKey || (provider === 'groq' ? process.env.GROQ_API_KEY : provider === 'mistral' ? process.env.MISTRAL_API_KEY : process.env.GOOGLE_API_KEY);
-    if (!apiKeyToUse) {
+    const apiKeyToUse = cleanKey || (provider === 'groq' ? process.env.GROQ_API_KEY : provider === 'mistral' ? process.env.MISTRAL_API_KEY : process.env.GOOGLE_API_KEY) || '';
+    if (!apiKeyToUse && provider !== 'azure') {
       return NextResponse.json({ error: `Missing ${provider === 'groq' ? 'Groq' : provider === 'mistral' ? 'Mistral' : 'Google'} API Key` }, { status: 400 });
+    }
+    if (provider === 'azure' && (!cleanKey || !azure_endpoint || !azure_deployment)) {
+      return NextResponse.json({ error: 'Missing Azure credentials (Key, Endpoint, or Deployment)' }, { status: 400 });
     }
 
     console.log(`[BRAND-COLORS] Provider: ${provider} | Input: "${cleanName}" | Key length: ${apiKeyToUse.length}`);
@@ -204,6 +207,40 @@ No preamble. No markdown code blocks. Just raw JSON.`;
           }
           throw err;
         }
+      }
+    } else if (provider === 'azure') {
+      const modelStartTime = performance.now();
+      try {
+        console.log(`[BRAND-COLORS] Attempting Azure OpenAI: ${azure_deployment}`);
+        const url = `${azure_endpoint.replace(/\/$/, '')}/openai/deployments/${azure_deployment}/chat/completions?api-version=2024-02-15-preview`;
+        
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'api-key': apiKeyToUse
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: combinedPrompt }],
+            temperature: 0.1,
+            max_completion_tokens: 1000,
+            response_format: { type: 'json_object' }
+          })
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Azure API error: ${response.status} - ${errText}`);
+        }
+
+        const data = await response.json();
+        const duration = ((performance.now() - modelStartTime) / 1000).toFixed(1);
+        console.log(`[BRAND-COLORS][Azure] Success in ${duration}s`);
+        content = data.choices[0]?.message?.content || '';
+      } catch (err: any) {
+        console.error(`[BRAND-COLORS][Azure] Error:`, err?.message || err);
+        lastError = err;
+        throw err;
       }
     } else {
       // Google AI
